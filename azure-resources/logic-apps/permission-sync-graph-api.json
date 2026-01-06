@@ -1,0 +1,265 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "description": "Advanced Logic App that uses Microsoft Graph API directly for permission sync. Runs every 5 minutes.",
+  "parameters": {
+    "backendApiUrl": {
+      "type": "String",
+      "defaultValue": "https://your-backend-api.azurewebsites.net"
+    },
+    "backendApiKey": {
+      "type": "SecureString"
+    },
+    "tenantId": {
+      "type": "String"
+    },
+    "clientId": {
+      "type": "String"
+    },
+    "clientSecret": {
+      "type": "SecureString"
+    },
+    "sharePointSiteId": {
+      "type": "String",
+      "defaultValue": "your-sharepoint-site-id"
+    },
+    "driveId": {
+      "type": "String",
+      "defaultValue": "your-drive-id"
+    }
+  },
+  "triggers": {
+    "Recurrence_5_Minutes": {
+      "type": "Recurrence",
+      "recurrence": {
+        "frequency": "Minute",
+        "interval": 5
+      }
+    }
+  },
+  "actions": {
+    "Get_Access_Token": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://login.microsoftonline.com/@{parameters('tenantId')}/oauth2/v2.0/token",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": "client_id=@{parameters('clientId')}&client_secret=@{parameters('clientSecret')}&scope=https://graph.microsoft.com/.default&grant_type=client_credentials"
+      },
+      "runAfter": {}
+    },
+    "Get_Delta_Changes": {
+      "type": "Http",
+      "inputs": {
+        "method": "GET",
+        "uri": "https://graph.microsoft.com/v1.0/drives/@{parameters('driveId')}/root/delta",
+        "headers": {
+          "Authorization": "Bearer @{body('Get_Access_Token')?['access_token']}"
+        },
+        "queries": {
+          "$select": "id,name,parentReference,file,permissions,lastModifiedDateTime,createdBy,lastModifiedBy"
+        }
+      },
+      "runAfter": {
+        "Get_Access_Token": ["Succeeded"]
+      }
+    },
+    "Initialize_ProcessedItems": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "ProcessedItems",
+            "type": "array",
+            "value": []
+          }
+        ]
+      },
+      "runAfter": {
+        "Get_Delta_Changes": ["Succeeded"]
+      }
+    },
+    "For_Each_Changed_Item": {
+      "type": "Foreach",
+      "foreach": "@body('Get_Delta_Changes')?['value']",
+      "actions": {
+        "Check_If_File": {
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "not": {
+                  "equals": ["@items('For_Each_Changed_Item')?['file']", null]
+                }
+              }
+            ]
+          },
+          "actions": {
+            "Get_Item_Permissions": {
+              "type": "Http",
+              "inputs": {
+                "method": "GET",
+                "uri": "https://graph.microsoft.com/v1.0/drives/@{parameters('driveId')}/items/@{items('For_Each_Changed_Item')?['id']}/permissions",
+                "headers": {
+                  "Authorization": "Bearer @{body('Get_Access_Token')?['access_token']}"
+                }
+              },
+              "runAfter": {}
+            },
+            "Parse_Permissions": {
+              "type": "ParseJson",
+              "inputs": {
+                "content": "@body('Get_Item_Permissions')",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {"type": "string"},
+                          "roles": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                          },
+                          "grantedToV2": {
+                            "type": "object",
+                            "properties": {
+                              "user": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {"type": "string"},
+                                  "email": {"type": "string"},
+                                  "displayName": {"type": "string"}
+                                }
+                              },
+                              "group": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {"type": "string"},
+                                  "displayName": {"type": "string"}
+                                }
+                              }
+                            }
+                          },
+                          "grantedToIdentitiesV2": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "user": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {"type": "string"},
+                                    "email": {"type": "string"}
+                                  }
+                                },
+                                "group": {
+                                  "type": "object",
+                                  "properties": {
+                                    "id": {"type": "string"}
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Get_Item_Permissions": ["Succeeded"]
+              }
+            },
+            "Extract_User_And_Group_IDs": {
+              "type": "Select",
+              "inputs": {
+                "from": "@body('Parse_Permissions')?['value']",
+                "select": {
+                  "userId": "@coalesce(item()?['grantedToV2']?['user']?['id'], '')",
+                  "userEmail": "@coalesce(item()?['grantedToV2']?['user']?['email'], '')",
+                  "groupId": "@coalesce(item()?['grantedToV2']?['group']?['id'], '')",
+                  "roles": "@item()?['roles']"
+                }
+              },
+              "runAfter": {
+                "Parse_Permissions": ["Succeeded"]
+              }
+            },
+            "Call_Backend_Sync_API": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "@{parameters('backendApiUrl')}/api/logic-app/sync-permission",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "X-API-Key": "@{parameters('backendApiKey')}"
+                },
+                "body": {
+                  "sharepoint_item_id": "@{items('For_Each_Changed_Item')?['id']}",
+                  "drive_id": "@{parameters('driveId')}",
+                  "file_name": "@{items('For_Each_Changed_Item')?['name']}",
+                  "modified_at": "@{items('For_Each_Changed_Item')?['lastModifiedDateTime']}",
+                  "permissions_raw": "@{body('Parse_Permissions')?['value']}",
+                  "allowed_users": "@{join(body('Extract_User_And_Group_IDs')?['userId'], ',')}",
+                  "allowed_groups": "@{join(body('Extract_User_And_Group_IDs')?['groupId'], ',')}"
+                }
+              },
+              "runAfter": {
+                "Extract_User_And_Group_IDs": ["Succeeded"]
+              }
+            },
+            "Append_To_Processed": {
+              "type": "AppendToArrayVariable",
+              "inputs": {
+                "name": "ProcessedItems",
+                "value": {
+                  "itemId": "@{items('For_Each_Changed_Item')?['id']}",
+                  "fileName": "@{items('For_Each_Changed_Item')?['name']}",
+                  "status": "processed",
+                  "timestamp": "@{utcNow()}"
+                }
+              },
+              "runAfter": {
+                "Call_Backend_Sync_API": ["Succeeded"]
+              }
+            }
+          },
+          "runAfter": {}
+        }
+      },
+      "runAfter": {
+        "Initialize_ProcessedItems": ["Succeeded"]
+      },
+      "runtimeConfiguration": {
+        "concurrency": {
+          "repetitions": 10
+        }
+      }
+    },
+    "Save_Delta_Link": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "@{parameters('backendApiUrl')}/api/logic-app/save-delta-link",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-API-Key": "@{parameters('backendApiKey')}"
+        },
+        "body": {
+          "deltaLink": "@{body('Get_Delta_Changes')?['@odata.deltaLink']}",
+          "processedCount": "@{length(variables('ProcessedItems'))}",
+          "timestamp": "@{utcNow()}"
+        }
+      },
+      "runAfter": {
+        "For_Each_Changed_Item": ["Succeeded"]
+      }
+    }
+  }
+}

@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend/logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+  admin-frontend:
+    build:
+      context: ./frontend/admin-app
+      dockerfile: Dockerfile
+    container_name: rag-admin
+    ports:
+      - "5173:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+  chat-frontend:
+    build:
+      context: ./frontend/chat-app
+      dockerfile: Dockerfile
+    container_name: rag-chat
+    ports:
+      - "5174:80"
+    env_file:
+      - ./frontend/chat-app/.env
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+networks:
+  rag-network:
+    driver: bridge

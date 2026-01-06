@@ -1,0 +1,255 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "description": "Simple HTTP-based Logic App for permission sync. Runs every 5 minutes and calls backend APIs using Microsoft Graph directly.",
+  "parameters": {
+    "$connections": {
+      "type": "Object",
+      "defaultValue": {}
+    }
+  },
+  "staticResults": {},
+  "triggers": {
+    "Recurrence_Every_5_Minutes": {
+      "type": "Recurrence",
+      "recurrence": {
+        "frequency": "Minute",
+        "interval": 5,
+        "timeZone": "UTC"
+      }
+    }
+  },
+  "actions": {
+    "Initialize_Config": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "Config",
+            "type": "Object",
+            "value": {
+              "backendApiUrl": "https://YOUR_BACKEND_URL",
+              "backendApiKey": "YOUR_API_KEY",
+              "tenantId": "YOUR_TENANT_ID",
+              "clientId": "YOUR_CLIENT_ID",
+              "clientSecret": "YOUR_CLIENT_SECRET",
+              "driveId": "YOUR_DRIVE_ID"
+            }
+          }
+        ]
+      },
+      "runAfter": {}
+    },
+    "Get_Access_Token": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "https://login.microsoftonline.com/@{variables('Config')['tenantId']}/oauth2/v2.0/token",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": "client_id=@{variables('Config')['clientId']}&client_secret=@{variables('Config')['clientSecret']}&scope=https://graph.microsoft.com/.default&grant_type=client_credentials"
+      },
+      "runAfter": {
+        "Initialize_Config": ["Succeeded"]
+      },
+      "runtimeConfiguration": {
+        "secureData": {
+          "properties": ["inputs"]
+        }
+      }
+    },
+    "Get_Existing_Delta_Link": {
+      "type": "Http",
+      "inputs": {
+        "method": "GET",
+        "uri": "@{variables('Config')['backendApiUrl']}/api/logic-app/delta-link",
+        "headers": {
+          "X-API-Key": "@{variables('Config')['backendApiKey']}"
+        }
+      },
+      "runAfter": {
+        "Get_Access_Token": ["Succeeded"]
+      }
+    },
+    "Determine_Delta_URL": {
+      "type": "Compose",
+      "inputs": "@if(or(equals(body('Get_Existing_Delta_Link')?['deltaLink'], null), equals(body('Get_Existing_Delta_Link')?['deltaLink'], '')), concat('https://graph.microsoft.com/v1.0/drives/', variables('Config')['driveId'], '/root/delta'), body('Get_Existing_Delta_Link')['deltaLink'])",
+      "runAfter": {
+        "Get_Existing_Delta_Link": ["Succeeded"]
+      }
+    },
+    "Get_Drive_Changes": {
+      "type": "Http",
+      "inputs": {
+        "method": "GET",
+        "uri": "@{outputs('Determine_Delta_URL')}",
+        "headers": {
+          "Authorization": "Bearer @{body('Get_Access_Token')['access_token']}"
+        }
+      },
+      "runAfter": {
+        "Determine_Delta_URL": ["Succeeded"]
+      }
+    },
+    "Initialize_ProcessedCount": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "ProcessedCount",
+            "type": "Integer",
+            "value": 0
+          }
+        ]
+      },
+      "runAfter": {
+        "Get_Drive_Changes": ["Succeeded"]
+      }
+    },
+    "Initialize_ErrorCount": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "ErrorCount",
+            "type": "Integer",
+            "value": 0
+          }
+        ]
+      },
+      "runAfter": {
+        "Initialize_ProcessedCount": ["Succeeded"]
+      }
+    },
+    "For_Each_Changed_Item": {
+      "type": "Foreach",
+      "foreach": "@body('Get_Drive_Changes')?['value']",
+      "actions": {
+        "Check_Is_File": {
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "not": {
+                  "equals": ["@items('For_Each_Changed_Item')?['file']", null]
+                }
+              },
+              {
+                "not": {
+                  "contains": ["@coalesce(items('For_Each_Changed_Item')?['name'], '')", "~$"]
+                }
+              }
+            ]
+          },
+          "actions": {
+            "Get_Item_Permissions": {
+              "type": "Http",
+              "inputs": {
+                "method": "GET",
+                "uri": "https://graph.microsoft.com/v1.0/drives/@{variables('Config')['driveId']}/items/@{items('For_Each_Changed_Item')['id']}/permissions",
+                "headers": {
+                  "Authorization": "Bearer @{body('Get_Access_Token')['access_token']}"
+                }
+              },
+              "runAfter": {}
+            },
+            "Sync_Permissions_To_Backend": {
+              "type": "Http",
+              "inputs": {
+                "method": "POST",
+                "uri": "@{variables('Config')['backendApiUrl']}/api/logic-app/sync-permission",
+                "headers": {
+                  "Content-Type": "application/json",
+                  "X-API-Key": "@{variables('Config')['backendApiKey']}"
+                },
+                "body": {
+                  "sharepoint_item_id": "@{items('For_Each_Changed_Item')['id']}",
+                  "drive_id": "@{variables('Config')['driveId']}",
+                  "file_name": "@{items('For_Each_Changed_Item')['name']}",
+                  "modified_at": "@{items('For_Each_Changed_Item')['lastModifiedDateTime']}",
+                  "permissions_raw": "@body('Get_Item_Permissions')?['value']"
+                }
+              },
+              "runAfter": {
+                "Get_Item_Permissions": ["Succeeded"]
+              }
+            },
+            "Increment_Processed": {
+              "type": "IncrementVariable",
+              "inputs": {
+                "name": "ProcessedCount",
+                "value": 1
+              },
+              "runAfter": {
+                "Sync_Permissions_To_Backend": ["Succeeded"]
+              }
+            },
+            "Increment_Error_On_Fail": {
+              "type": "IncrementVariable",
+              "inputs": {
+                "name": "ErrorCount",
+                "value": 1
+              },
+              "runAfter": {
+                "Sync_Permissions_To_Backend": ["Failed"]
+              }
+            }
+          },
+          "else": {
+            "actions": {}
+          },
+          "runAfter": {}
+        }
+      },
+      "runAfter": {
+        "Initialize_ErrorCount": ["Succeeded"]
+      },
+      "runtimeConfiguration": {
+        "concurrency": {
+          "repetitions": 5
+        }
+      }
+    },
+    "Save_New_Delta_Link": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "@{variables('Config')['backendApiUrl']}/api/logic-app/save-delta-link",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-API-Key": "@{variables('Config')['backendApiKey']}"
+        },
+        "body": {
+          "deltaLink": "@{body('Get_Drive_Changes')?['@odata.deltaLink']}",
+          "processedCount": "@{variables('ProcessedCount')}",
+          "timestamp": "@{utcNow()}"
+        }
+      },
+      "runAfter": {
+        "For_Each_Changed_Item": ["Succeeded", "Failed"]
+      }
+    },
+    "Update_Sync_Status": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "@{variables('Config')['backendApiUrl']}/api/logic-app/update-sync-timestamp",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-API-Key": "@{variables('Config')['backendApiKey']}"
+        },
+        "body": {
+          "timestamp": "@{utcNow()}",
+          "filesProcessed": "@{variables('ProcessedCount')}",
+          "errorCount": "@{variables('ErrorCount')}",
+          "results": []
+        }
+      },
+      "runAfter": {
+        "Save_New_Delta_Link": ["Succeeded", "Failed"]
+      }
+    }
+  },
+  "outputs": {}
+}

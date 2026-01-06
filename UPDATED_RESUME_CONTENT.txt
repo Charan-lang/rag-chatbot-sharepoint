@@ -1,0 +1,115 @@
+================================================================================
+                        UPDATED RESUME CONTENT
+              (Copy this content into Sample Profile 2 1 17 (1).docx)
+================================================================================
+
+CHARAN BABU GAJJALA
+Full Stack AI Developer | Azure Cloud Specialist
+
+Email: [Your Email]
+Phone: [Your Phone]
+Location: [Your Location]
+LinkedIn: [Your LinkedIn URL]
+
+================================================================================
+PROFESSIONAL SUMMARY
+================================================================================
+
+Results-driven Full Stack Developer with 5+ years of experience specializing in 
+AI/ML solutions, cloud-native applications, and enterprise software development. 
+Expertise in building Retrieval-Augmented Generation (RAG) systems, Azure cloud 
+services, and secure enterprise applications. Proficient in Python, React, FastAPI, 
+and Microsoft Azure ecosystem including Azure OpenAI, Azure AI Search, and 
+Microsoft Graph API integrations.
+
+================================================================================
+TECHNICAL SKILLS
+================================================================================
+
+Programming Languages:    Python, JavaScript/TypeScript, C#, SQL
+Frontend:                 React, Vite, HTML5, CSS3, Tailwind CSS, MSAL.js
+Backend:                  FastAPI, Node.js, .NET Core, REST APIs
+AI/ML:                    Azure OpenAI (GPT-4o), LangChain, RAG, Vector Embeddings,
+                          Semantic Search, Text-embedding-3-small
+Cloud & Azure:            Azure OpenAI Service, Azure AI Search, Azure Logic Apps,
+                          Azure App Service, Azure Functions, Microsoft Entra ID
+Databases:                Azure Cosmos DB, SQL Server, PostgreSQL, MongoDB
+Integration:              Microsoft Graph API, SharePoint Online, Power Platform
+DevOps:                   Docker, Git, Azure DevOps, CI/CD Pipelines
+Authentication:           Microsoft Entra ID (Azure AD), OAuth 2.0, JWT, SSO
+
+================================================================================
+PROFESSIONAL EXPERIENCE
+================================================================================
+
+[Add your work experience from Charan Resume 3.pdf here]
+
+================================================================================
+PROJECT EXPERIENCE
+================================================================================
+
+--------------------------------------------------------------------------------
+PROJECT 1: PERMISSIONS-AWARE RAG CHATBOT WITH AZURE AI
+--------------------------------------------------------------------------------
+
+Client:          Enterprise Internal Tool
+Duration:        [Oct 2025 – Jan 2026 or your actual duration]
+Role:            Full Stack AI Developer
+Team Size:       [X members]
+
+Description:
+Designed and developed an enterprise-grade Retrieval-Augmented Generation (RAG) 
+chatbot enabling secure, context-aware Q&A over organizational documents with 
+document-level access control. The system integrates with SharePoint Online for 
+document ingestion and automatically synchronizes file permissions to ensure users 
+only receive answers from documents they're authorized to access.
+
+Responsibilities:
+• Architected RESTful APIs using FastAPI with 7 route modules including 
+  Authentication, Admin, Chat, Documents, Ingestion, SharePoint Graph, and 
+  Logic App integration
+• Implemented permission-aware vector search using Azure AI Search with security 
+  filters based on user ID and group memberships ensuring 100% permission compliance
+• Developed document chunking pipeline with configurable chunk size (1000 tokens) 
+  and overlap (200 tokens) for optimal RAG retrieval performance
+• Integrated Microsoft Graph API for SharePoint document access and real-time 
+  permission synchronization using Delta Query
+• Built React chat application with MSAL.js for Microsoft Entra ID (Azure AD) 
+  SSO authentication with streaming response support
+• Developed Admin Portal with React featuring dashboard, document management, 
+  chunk viewer, permission sync monitoring, and complete audit logging
+• Designed Azure Logic App workflow for automated permission synchronization 
+  running every 5 minutes using Microsoft Graph Delta Query (90% API call reduction)
+• Integrated Azure OpenAI GPT-4o for intelligent response generation and 
+  text-embedding-3-small for semantic vector embeddings
+• Implemented hybrid search combining vector, semantic, and full-text search 
+  with HNSW indexing for sub-2-second query responses
+• Built JWT-based authentication system with dual auth support (API key + JWT) 
+  for Logic App integration
+• Enforced row-level security through permission filters (allowed_users, 
+  allowed_groups, owner_id) on every search query
+
+Technologies:
+Python, FastAPI, React, Vite, Azure OpenAI (GPT-4o), Azure AI Search, 
+Microsoft Graph API, SharePoint Online, Azure Logic Apps, MSAL.js, 
+Microsoft Entra ID (Azure AD), JWT, Pydantic, HTTPX, Docker, Docker Compose
+
+--------------------------------------------------------------------------------
+PROJECT 2: ENVISION - [Keep your existing Envision project details]
+--------------------------------------------------------------------------------
+
+[Copy your Envision project details from Charan Resume 3.pdf]
+
+================================================================================
+EDUCATION
+================================================================================
+
+[Add your education details from Charan Resume 3.pdf]
+
+================================================================================
+CERTIFICATIONS (if any)
+================================================================================
+
+[Add your certifications from Charan Resume 3.pdf]
+
+================================================================================

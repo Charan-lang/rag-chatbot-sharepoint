@@ -1,0 +1,234 @@
+{
+  "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "backendApiUrl": {
+      "type": "String",
+      "defaultValue": "https://your-backend-api.azurewebsites.net"
+    },
+    "backendApiKey": {
+      "type": "SecureString",
+      "defaultValue": ""
+    },
+    "sharePointSiteUrl": {
+      "type": "String",
+      "defaultValue": "https://your-tenant.sharepoint.com/sites/your-site"
+    },
+    "documentLibraryName": {
+      "type": "String",
+      "defaultValue": "Documents"
+    }
+  },
+  "triggers": {
+    "Recurrence_Every_5_Minutes": {
+      "type": "Recurrence",
+      "recurrence": {
+        "frequency": "Minute",
+        "interval": 5
+      }
+    }
+  },
+  "actions": {
+    "Initialize_SyncResults": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "SyncResults",
+            "type": "array",
+            "value": []
+          }
+        ]
+      },
+      "runAfter": {}
+    },
+    "Initialize_ErrorCount": {
+      "type": "InitializeVariable",
+      "inputs": {
+        "variables": [
+          {
+            "name": "ErrorCount",
+            "type": "integer",
+            "value": 0
+          }
+        ]
+      },
+      "runAfter": {
+        "Initialize_SyncResults": ["Succeeded"]
+      }
+    },
+    "Get_Last_Sync_Timestamp": {
+      "type": "Http",
+      "inputs": {
+        "method": "GET",
+        "uri": "@{parameters('backendApiUrl')}/api/logic-app/last-sync-timestamp",
+        "headers": {
+          "X-API-Key": "@{parameters('backendApiKey')}"
+        }
+      },
+      "runAfter": {
+        "Initialize_ErrorCount": ["Succeeded"]
+      }
+    },
+    "Get_Modified_Files_From_SharePoint": {
+      "type": "ApiConnection",
+      "inputs": {
+        "host": {
+          "connection": {
+            "name": "@parameters('$connections')['sharepointonline']['connectionId']"
+          }
+        },
+        "method": "get",
+        "path": "/datasets/@{encodeURIComponent(encodeURIComponent(parameters('sharePointSiteUrl')))}/tables/@{encodeURIComponent(encodeURIComponent(parameters('documentLibraryName')))}/items",
+        "queries": {
+          "$filter": "Modified ge '@{body('Get_Last_Sync_Timestamp')?['lastSyncTimestamp']}'",
+          "$top": 100
+        }
+      },
+      "runAfter": {
+        "Get_Last_Sync_Timestamp": ["Succeeded"]
+      }
+    },
+    "For_Each_Modified_File": {
+      "type": "Foreach",
+      "foreach": "@body('Get_Modified_Files_From_SharePoint')?['value']",
+      "actions": {
+        "Get_File_Permissions": {
+          "type": "ApiConnection",
+          "inputs": {
+            "host": {
+              "connection": {
+                "name": "@parameters('$connections')['sharepointonline']['connectionId']"
+              }
+            },
+            "method": "get",
+            "path": "/datasets/@{encodeURIComponent(encodeURIComponent(parameters('sharePointSiteUrl')))}/tables/@{encodeURIComponent(encodeURIComponent(parameters('documentLibraryName')))}/items/@{items('For_Each_Modified_File')?['ID']}/attachments"
+          },
+          "runAfter": {}
+        },
+        "Call_Backend_Update_Permissions": {
+          "type": "Http",
+          "inputs": {
+            "method": "POST",
+            "uri": "@{parameters('backendApiUrl')}/api/logic-app/sync-permission",
+            "headers": {
+              "Content-Type": "application/json",
+              "X-API-Key": "@{parameters('backendApiKey')}"
+            },
+            "body": {
+              "sharepoint_item_id": "@{items('For_Each_Modified_File')?['ID']}",
+              "sharepoint_item_unique_id": "@{items('For_Each_Modified_File')?['{UniqueId}']}",
+              "file_name": "@{items('For_Each_Modified_File')?['FileLeafRef']}",
+              "file_path": "@{items('For_Each_Modified_File')?['FileRef']}",
+              "modified_at": "@{items('For_Each_Modified_File')?['Modified']}",
+              "modified_by": "@{items('For_Each_Modified_File')?['Editor']?['Email']}",
+              "permissions": {
+                "created_by": "@{items('For_Each_Modified_File')?['Author']?['Email']}",
+                "shared_with": "@{items('For_Each_Modified_File')?['SharedWithDetails']}"
+              }
+            }
+          },
+          "runAfter": {
+            "Get_File_Permissions": ["Succeeded", "Failed"]
+          }
+        },
+        "Append_Result": {
+          "type": "AppendToArrayVariable",
+          "inputs": {
+            "name": "SyncResults",
+            "value": {
+              "fileId": "@{items('For_Each_Modified_File')?['ID']}",
+              "fileName": "@{items('For_Each_Modified_File')?['FileLeafRef']}",
+              "status": "@{if(equals(outputs('Call_Backend_Update_Permissions')['statusCode'], 200), 'success', 'failed')}",
+              "timestamp": "@{utcNow()}"
+            }
+          },
+          "runAfter": {
+            "Call_Backend_Update_Permissions": ["Succeeded", "Failed"]
+          }
+        },
+        "Increment_Error_On_Failure": {
+          "type": "IncrementVariable",
+          "inputs": {
+            "name": "ErrorCount",
+            "value": 1
+          },
+          "runAfter": {
+            "Call_Backend_Update_Permissions": ["Failed"]
+          }
+        }
+      },
+      "runAfter": {
+        "Get_Modified_Files_From_SharePoint": ["Succeeded"]
+      },
+      "runtimeConfiguration": {
+        "concurrency": {
+          "repetitions": 5
+        }
+      }
+    },
+    "Update_Sync_Timestamp": {
+      "type": "Http",
+      "inputs": {
+        "method": "POST",
+        "uri": "@{parameters('backendApiUrl')}/api/logic-app/update-sync-timestamp",
+        "headers": {
+          "Content-Type": "application/json",
+          "X-API-Key": "@{parameters('backendApiKey')}"
+        },
+        "body": {
+          "timestamp": "@{utcNow()}",
+          "filesProcessed": "@{length(body('Get_Modified_Files_From_SharePoint')?['value'])}",
+          "errorCount": "@{variables('ErrorCount')}",
+          "results": "@{variables('SyncResults')}"
+        }
+      },
+      "runAfter": {
+        "For_Each_Modified_File": ["Succeeded", "Failed"]
+      }
+    },
+    "Send_Alert_On_High_Errors": {
+      "type": "If",
+      "expression": {
+        "and": [
+          {
+            "greater": ["@variables('ErrorCount')", 5]
+          }
+        ]
+      },
+      "actions": {
+        "Send_Email_Alert": {
+          "type": "ApiConnection",
+          "inputs": {
+            "host": {
+              "connection": {
+                "name": "@parameters('$connections')['office365']['connectionId']"
+              }
+            },
+            "method": "post",
+            "path": "/v2/Mail",
+            "body": {
+              "To": "admin@yourdomain.com",
+              "Subject": "SharePoint Permission Sync - High Error Rate Alert",
+              "Body": "<p>The SharePoint permission sync job encountered @{variables('ErrorCount')} errors.</p><p>Please review the sync logs in the admin portal.</p>",
+              "Importance": "High"
+            }
+          }
+        }
+      },
+      "runAfter": {
+        "Update_Sync_Timestamp": ["Succeeded"]
+      }
+    }
+  },
+  "outputs": {
+    "SyncSummary": {
+      "type": "Object",
+      "value": {
+        "totalFiles": "@{length(body('Get_Modified_Files_From_SharePoint')?['value'])}",
+        "errorCount": "@{variables('ErrorCount')}",
+        "completedAt": "@{utcNow()}"
+      }
+    }
+  }
+}
